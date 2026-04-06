@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "author": "Humphrey",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "board-esp32-devkit-v1", "id": "esp32", "top": 200, "left": 0, "attrs": {} },
+
+    { "type": "wokwi-led", "id": "redA", "top": 0, "left": -200, "attrs": { "color": "red" } },
+    { "type": "wokwi-led", "id": "greenA", "top": 60, "left": -200, "attrs": { "color": "green" } },
+    { "type": "wokwi-led", "id": "yellowA", "top": 120, "left": -200, "attrs": { "color": "yellow" } },
+
+    { "type": "wokwi-led", "id": "redB", "top": 0, "left": 200, "attrs": { "color": "red" } },
+    { "type": "wokwi-led", "id": "greenB", "top": 60, "left": 200, "attrs": { "color": "green" } },
+    { "type": "wokwi-led", "id": "yellowB", "top": 120, "left": 200, "attrs": { "color": "yellow" } },
+
+    { "type": "wokwi-resistor", "id": "r1", "top": 0, "left": -140, "attrs": { "value": "220" } },
+    { "type": "wokwi-resistor", "id": "r2", "top": 60, "left": -140, "attrs": { "value": "220" } },
+    { "type": "wokwi-resistor", "id": "r3", "top": 120, "left": -140, "attrs": { "value": "220" } },
+    { "type": "wokwi-resistor", "id": "r4", "top": 0, "left": 140, "attrs": { "value": "220" } },
+    { "type": "wokwi-resistor", "id": "r5", "top": 60, "left": 140, "attrs": { "value": "220" } },
+    { "type": "wokwi-resistor", "id": "r6", "top": 120, "left": 140, "attrs": { "value": "220" } },
+
+    { "type": "wokwi-photoresistor-sensor", "id": "ldr", "top": 350, "left": -150, "attrs": {} },
+    { "type": "wokwi-pushbutton", "id": "btn", "top": 350, "left": 150, "attrs": { "color": "red" } }
+  ],
+  "connections": [
+    ["esp32:D16", "r1:1", "red", []],
+    ["r1:2", "redA:A", "red", []],
+    ["redA:K", "esp32:GND.1", "black", []],
+
+    ["esp32:D17", "r2:1", "green", []],
+    ["r2:2", "greenA:A", "green", []],
+    ["greenA:K", "esp32:GND.1", "black", []],
+
+    ["esp32:D18", "r3:1", "orange", []],
+    ["r3:2", "yellowA:A", "orange", []],
+    ["yellowA:K", "esp32:GND.1", "black", []],
+
+    ["esp32:D19", "r4:1", "red", []],
+    ["r4:2", "redB:A", "red", []],
+    ["redB:K", "esp32:GND.2", "black", []],
+
+    ["esp32:D21", "r5:1", "green", []],
+    ["r5:2", "greenB:A", "green", []],
+    ["greenB:K", "esp32:GND.2", "black", []],
+
+    ["esp32:D22", "r6:1", "orange", []],
+    ["r6:2", "yellowB:A", "orange", []],
+    ["yellowB:K", "esp32:GND.2", "black", []],
+
+    ["esp32:D34", "ldr:AO", "purple", []],
+    ["ldr:VCC", "esp32:3V3", "red", []],
+    ["ldr:GND", "esp32:GND.1", "black", []],
+
+    ["esp32:D23", "btn:1.l", "blue", []],
+    ["btn:2.l", "esp32:GND.2", "black", []]
+  ]
+}
