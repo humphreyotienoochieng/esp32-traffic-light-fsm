@@ -1,228 +1,167 @@
-#include <Arduino.h>
+#include<Arduino.h>
+#include<DHT.h>
+#include "PWMDevice.h"
 
-#define RED_LED1_PIN 16
-#define GREEN_LED1_PIN 17
-#define YELLOW_LED1_PIN 18
-#define RED_LED2_PIN 19
-#define GREEN_LED2_PIN 21
-#define YELLOW_LED2_PIN 22
-#define LDR_PIN 34
-
-#define PUSH_BUTTON 23
-#define A_RED_CHANNEL 0
-#define A_GREEN_CHANNEL 1
-#define A_YELLOW_CHANNEL 2
-#define B_RED_CHANNEL 3
-#define B_GREEN_CHANNEL 4
-#define B_YELLOW_CHANNEL 5
-#define PWM_RESOLUTION 8
+#define DHT_PIN 4
+#define DHTTYPE DHT11
+pwmDevice heater(16, 0);
+pwmDevice fan(17, 1);
 #define PWM_FREQUENCY 5000
+#define PWM_RESOLUTION 8 // 0-255
+
+
+DHT dht(DHT_PIN, DHTTYPE);
+
+//Setting the state 
+enum State{HOT, AMBIENT, COLD};
+State currentState = AMBIENT;
+
+//Thresholds for fan temperature
+const float WARNING_HIGH_TEMP_C = 30.0;
+const float WARNING_EXTREME_HIGH_TEMP_C = 35.0;
+
+//Thresholds for heater temperature
+const float WARNING_LOW_TEMP_C = 5.0;
+const float WARNING_EXTREME_LOW_TEMP_C = 0.0;
 
 //Defining the brightness levels
-const int DAY_BRIGHTNESS = 255;
-const int NIGHT_BRIGHTNESS = 80;
-
-//Defining the Brightness Control
-int currentBrightness = 255;
-int targetBrightness = 255;
-
-//Defining the Threshold
-const int NIGHT_THRESHOLD = 1500;
-const int DAY_THRESHOLD = 1800;
-
-//Defining the time the traffic lights are on
-const unsigned long allRedTime = 5000;
-const unsigned long greenTime = 5000;
-const unsigned long yellowTime = 2000;
+const int FAN_LEVEL_MAX = 255;
+const int FAN_LEVEL_MIN = 80;
+const int HEATER_LEVEL_MIN = 80;
+const int HEATER_LEVEL_MAX = 255;
 
 
-//Defining the different Traffic Light States to be controlled
-enum State{ALLRED1, A_GREEN, A_YELLOW, ALLRED2, B_GREEN, B_YELLOW, EMERGENCY_RED};
-State currentState = A_GREEN;
+//Timings
+const unsigned long DHT_SENSOR_TIMING = 2000;
+const unsigned long PWM_RAMP = 20;
+unsigned long previousSensorTime = 0;
+unsigned long previousRampTime = 0;
 
-//Defining the Mode
-enum Mode{DAY, NIGHT};
-Mode currentMode = DAY;
+//Variables to store the readings
+float temperatureC = 0;
+float humidity = 0;
 
-unsigned long previousTime = 0;
+//Functions
+bool readSensorData();
+void controlOutputs();
+void printReadings();
 
 void setup()
 {
   Serial.begin(115200);
+  delay(500);
 
-  ledcSetup(A_RED_CHANNEL, PWM_FREQUENCY, PWM_RESOLUTION);
-  ledcAttachPin(RED_LED1_PIN, A_RED_CHANNEL);
+  heater.begin(5000, 8);
+  fan.begin(5000, 8);
 
-  ledcSetup(A_GREEN_CHANNEL, PWM_FREQUENCY, PWM_RESOLUTION);
-  ledcAttachPin(GREEN_LED1_PIN, A_GREEN_CHANNEL);
+  //Initialize the Sensor
+  dht.begin();
+  Serial.println("ESP32 Temperature and Humidity Monitor");
+  Serial.println("Using DHT sensor with millis()");
+  Serial.println("Warning LED above 30°C");
+  Serial.println("Fan/Relay ON above 35°C");
 
-  ledcSetup(A_YELLOW_CHANNEL, PWM_FREQUENCY, PWM_RESOLUTION);
-  ledcAttachPin(YELLOW_LED1_PIN, A_YELLOW_CHANNEL);
-
-  ledcSetup(B_RED_CHANNEL, PWM_FREQUENCY, PWM_RESOLUTION);
-  ledcAttachPin(RED_LED2_PIN, B_RED_CHANNEL);
-
-  ledcSetup(B_GREEN_CHANNEL, PWM_FREQUENCY, PWM_RESOLUTION);
-  ledcAttachPin(GREEN_LED2_PIN, B_GREEN_CHANNEL);
-
-  ledcSetup(B_YELLOW_CHANNEL, PWM_FREQUENCY, PWM_RESOLUTION);
-  ledcAttachPin(YELLOW_LED2_PIN, B_YELLOW_CHANNEL);
-
-  pinMode(PUSH_BUTTON, INPUT_PULLUP);
-  //Initialize the first sequence
-  ledcWrite(A_RED_CHANNEL, 0);
-  ledcWrite(A_GREEN_CHANNEL, currentBrightness);
-  ledcWrite(A_YELLOW_CHANNEL, 0);
-  ledcWrite(B_RED_CHANNEL, currentBrightness);
-  ledcWrite(B_GREEN_CHANNEL, 0);
-  ledcWrite(B_YELLOW_CHANNEL, 0);
-  previousTime = millis();
 }
 
 void loop()
 {
-  //Read the sensor value
-  int lightValue = analogRead(LDR_PIN);
-  unsigned long currentTime = millis();
-  int buttonState = digitalRead(PUSH_BUTTON);
-  if(buttonState == LOW)
-  {
-    currentState = EMERGENCY_RED;
-    ledcWrite(A_RED_CHANNEL, currentBrightness);
-    ledcWrite(A_GREEN_CHANNEL, 0);
-    ledcWrite(A_YELLOW_CHANNEL, 0);
-    ledcWrite(B_RED_CHANNEL, currentBrightness);
-    ledcWrite(B_GREEN_CHANNEL, 0);
-    ledcWrite(B_YELLOW_CHANNEL, 0);
-    previousTime = currentTime;
-
-  }
-
-  if(currentMode == DAY && lightValue < NIGHT_THRESHOLD)
-  {
-    currentMode = NIGHT;
-    targetBrightness = NIGHT_BRIGHTNESS;
-    Serial.println("Switching to NIGHT MODE");
-  }
-  else if(currentMode == NIGHT && lightValue > DAY_THRESHOLD)
-  {
-    currentMode = DAY;
-    targetBrightness = DAY_BRIGHTNESS;
-    Serial.println("Switching to DAY MODE");
-  }
-
-  //Smooth Transition and avoid abrupt changes
-  if(currentBrightness < targetBrightness)
-  {
-    currentBrightness++;
-  }
-  else if(currentBrightness > targetBrightness)
-  {
-    currentBrightness-- ;
-  }
-  //Control of the Traffic Light
-  switch(currentState)
-  {
-    case A_GREEN:
-    if(currentTime - previousTime >= greenTime)
+  unsigned long currentSensorTime = millis();
+  
+    if (currentSensorTime - previousSensorTime >= DHT_SENSOR_TIMING)
     {
-      currentState = A_YELLOW;
-      ledcWrite(A_YELLOW_CHANNEL, currentBrightness);
-      ledcWrite(A_GREEN_CHANNEL, 0);
-      ledcWrite(A_RED_CHANNEL, 0);
-      ledcWrite(B_RED_CHANNEL, currentBrightness);
-      ledcWrite(B_GREEN_CHANNEL, 0);
-      ledcWrite(B_YELLOW_CHANNEL, 0);
-      previousTime = currentTime;
-    }
-    break;
+        previousSensorTime = currentSensorTime;
 
-    case A_YELLOW:
-    if(currentTime - previousTime >= yellowTime)
+        if (readSensorData())
+        {
+            controlOutputs();
+        }
+    }
+
+    // Fast timer: ramp outputs smoothly
+    if (currentSensorTime - previousRampTime >= PWM_RAMP)
     {
-      currentState = ALLRED1;
-      ledcWrite(A_RED_CHANNEL, currentBrightness);
-      ledcWrite(A_GREEN_CHANNEL, 0);
-      ledcWrite(A_YELLOW_CHANNEL, 0);
-      ledcWrite(B_RED_CHANNEL, currentBrightness);
-      ledcWrite(B_GREEN_CHANNEL, 0);
-      ledcWrite(B_YELLOW_CHANNEL, 0);
-      previousTime = currentTime;
+        previousRampTime = currentSensorTime;
+        fan.update();
+        heater.update();
     }
-    break;
 
-    case ALLRED1:
-    if(currentTime - previousTime >= allRedTime)
-    {
-      currentState = B_GREEN;
-      ledcWrite(A_RED_CHANNEL, currentBrightness);
-      ledcWrite(A_GREEN_CHANNEL, 0);
-      ledcWrite(A_YELLOW_CHANNEL, 0);
-      ledcWrite(B_RED_CHANNEL, 0);
-      ledcWrite(B_GREEN_CHANNEL, currentBrightness);
-      ledcWrite(B_YELLOW_CHANNEL, 0);
-      previousTime = currentTime;
-    }
-    break;
-
-    case B_GREEN:
-    if(currentTime - previousTime >= greenTime)
-    {
-      currentState = B_YELLOW;
-      ledcWrite(A_RED_CHANNEL, currentBrightness);
-      ledcWrite(A_GREEN_CHANNEL, 0);
-      ledcWrite(A_YELLOW_CHANNEL, 0);
-      ledcWrite(B_RED_CHANNEL, 0);
-      ledcWrite(B_GREEN_CHANNEL, 0);
-      ledcWrite(B_YELLOW_CHANNEL, currentBrightness);
-      previousTime = currentTime;
-    }
-    break;
-
-    case B_YELLOW:
-    if(currentTime - previousTime >= yellowTime)
-    {
-      currentState = ALLRED2;
-      ledcWrite(A_RED_CHANNEL, currentBrightness);
-      ledcWrite(A_GREEN_CHANNEL, 0);
-      ledcWrite(A_YELLOW_CHANNEL, 0);
-      ledcWrite(B_RED_CHANNEL, currentBrightness);
-      ledcWrite(B_GREEN_CHANNEL, 0);
-      ledcWrite(B_YELLOW_CHANNEL, 0);
-      previousTime = currentTime;
-    }
-    break;
-
-    case ALLRED2:
-    if(currentTime - previousTime >= allRedTime)
-    {
-      currentState = A_GREEN;
-      ledcWrite(A_RED_CHANNEL, 0);
-      ledcWrite(A_GREEN_CHANNEL, currentBrightness);
-      ledcWrite(A_YELLOW_CHANNEL, 0);
-      ledcWrite(B_RED_CHANNEL, currentBrightness);
-      ledcWrite(B_GREEN_CHANNEL, 0);
-      ledcWrite(B_YELLOW_CHANNEL, 0);
-      previousTime = currentTime;
-    }
-    break;
-
-     case EMERGENCY_RED:
-    if(currentTime - previousTime >= allRedTime)
-    {
-      currentState = A_GREEN;
-      ledcWrite(A_RED_CHANNEL, 0);
-      ledcWrite(A_GREEN_CHANNEL, currentBrightness);
-      ledcWrite(A_YELLOW_CHANNEL, 0);
-      ledcWrite(B_RED_CHANNEL, currentBrightness);
-      ledcWrite(B_GREEN_CHANNEL, 0);
-      ledcWrite(B_YELLOW_CHANNEL, 0);
-      previousTime = currentTime;
-    }
-    break;
-
-
-  }
 }
 
+bool readSensorData()
+{
+  float newtemperature = dht.readTemperature();
+  float newhumidity = dht.readHumidity();
+
+  //Exit early if the readings failed and try again
+  if(isnan(newtemperature) || isnan(newhumidity))
+  {
+    Serial.println("Failed to read from DHT sensor!");
+    return false;
+  }
+  temperatureC = newtemperature;
+  humidity = newhumidity;
+  return true;
+}
+
+void controlOutputs()
+{
+ if (temperatureC >= WARNING_EXTREME_HIGH_TEMP_C) 
+ {
+    currentState = HOT;
+    fan.setTarget(FAN_LEVEL_MAX);
+    heater.setTarget(0);
+  } 
+  else if (temperatureC >= WARNING_HIGH_TEMP_C) 
+  {
+    currentState = HOT;
+    fan.setTarget(FAN_LEVEL_MIN);
+    heater.setTarget(0);
+  } 
+  else if (temperatureC <= WARNING_EXTREME_LOW_TEMP_C) 
+  {
+    currentState = COLD;
+    heater.setTarget(HEATER_LEVEL_MAX);
+    fan.setTarget(0);
+  } 
+  else if (temperatureC <= WARNING_LOW_TEMP_C) 
+  {
+    currentState = COLD;
+    heater.setTarget(HEATER_LEVEL_MIN);
+    fan.setTarget(0);
+  } 
+  else 
+  {
+    currentState = AMBIENT;
+    heater.setTarget(0);
+    fan.setTarget(0);
+  }
+
+
+}
+
+void printReadings() 
+{
+    Serial.print("Temperature: ");
+    Serial.print(temperatureC);
+    Serial.print(" °C | Humidity: ");
+    Serial.print(humidity);
+    Serial.print(" % | Warning LED: ");
+    if (currentState == HOT)
+    {
+        Serial.print("HOT");
+    }
+    else if (currentState == COLD)
+    {
+        Serial.print("COLD");
+    }
+    else
+    {
+        Serial.print("AMBIENT");
+    }
+
+    Serial.print(" | Fan PWM: ");
+    Serial.print(fan.getCurrentLevel());
+    Serial.print(" | Heater PWM: ");
+    Serial.println(heater.getCurrentLevel());
+}
 
