@@ -1,117 +1,86 @@
-# ESP32 Traffic Light FSM with Emergency Override and PWM Dimming
+# esp32-climate-controller
 
-A dual-channel traffic light controller built on the ESP32, implementing a Finite State Machine (FSM) with emergency override, LDR-based automatic day/night brightness dimming via PWM, and non-blocking timing using `millis()`.
+An ESP32-based climate monitoring and control system that reads temperature and humidity from a DHT11 sensor and automatically drives a fan (cooling) and heater via PWM — with smooth ramping, OOP architecture, and CSV data logging over Serial for machine learning.
 
 ---
 
 ## Features
 
-- Dual traffic light control (Channel A and Channel B)
-- Finite State Machine (FSM) with 7 states
-- Emergency override via push button (all-red immediately)
-- Automatic day/night mode switching using an LDR sensor
-- Smooth PWM brightness dimming (255 for day, 80 for night)
-- Non-blocking timing using `millis()` instead of `delay()`
-
----
-
-## FSM State Diagram
-```
-A_GREEN → A_YELLOW → ALLRED1 → B_GREEN → B_YELLOW → ALLRED2 → A_GREEN
-                                    ↑
-                            EMERGENCY_RED (button press, any state)
-```
+- **Automatic climate control** — three states: HOT, AMBIENT, COLD, with configurable thresholds
+- **PWM fan and heater control** — smooth ramping between levels using a non-blocking `millis()` timer, no `delay()`
+- **Object-oriented design** — fan and heater encapsulated in a reusable `PwmDevice` class (`PWMDevice.h` / `PWMDevice.cpp`)
+- **CSV data logging over Serial** — outputs `timestamp_ms, temperature_C, humidity_pct, fan_pwm, heater_pwm, state` at every sensor read for capture and analysis
+- **ML-ready output** — logged data intended for training scikit-learn models in Python (in progress)
 
 ---
 
 ## Hardware
 
-| Component              | Quantity |
-|------------------------|----------|
-| ESP32 DevKit V1        | 1        |
-| Red LED                | 2        |
-| Green LED              | 2        |
-| Yellow LED             | 2        |
-| 220Ω Resistor          | 6        |
-| LDR Photoresistor      | 1        |
-| Push Button            | 1        |
+| Component | Pin |
+|-----------|-----|
+| ESP32 DevKit V1 | — |
+| DHT11 temperature/humidity sensor | GPIO 4 |
+| Fan LED (blue) + 220Ω resistor | GPIO 17 |
+| Heater LED (red) + 220Ω resistor | GPIO 16 |
 
 ---
 
-## Pin Mapping
+## Temperature Thresholds
 
-| Pin | Function          |
-|-----|-------------------|
-| 16  | Red LED A         |
-| 17  | Green LED A       |
-| 18  | Yellow LED A      |
-| 19  | Red LED B         |
-| 21  | Green LED B       |
-| 22  | Yellow LED B      |
-| 34  | LDR (Analog In)   |
-| 23  | Push Button       |
-
----
-
-## Wokwi Simulation
-
-A `diagram.json` is included for simulation in [Wokwi](https://wokwi.com). Open the project in Wokwi and load the diagram to simulate the full circuit.
-
----
-
-## Getting Started
-
-### Requirements
-- [PlatformIO](https://platformio.org/) with VS Code
-- ESP32 DevKit V1 board
-
-### Build and Upload
-```bash
-pio run --target upload
-```
-
-### Monitor Serial Output
-```bash
-pio device monitor
-```
-
----
-
-## Timing Configuration
-
-| State         | Duration |
-|---------------|----------|
-| Green         | 5000 ms  |
-| Yellow        | 2000 ms  |
-| All Red       | 5000 ms  |
-| Emergency Red | 5000 ms  |
-
----
-
-## Brightness Levels
-
-| Mode  | PWM Value |
-|-------|-----------|
-| Day   | 255       |
-| Night | 80        |
-
-LDR thresholds: Night trigger `< 1500`, Day trigger `> 1800`
+| Condition | Threshold | Response |
+|-----------|-----------|----------|
+| Extreme heat | ≥ 35°C | Fan at full speed (PWM 255) |
+| High heat | ≥ 30°C | Fan at low speed (PWM 80) |
+| Low cold | ≤ 5°C | Heater at low level (PWM 80) |
+| Extreme cold | ≤ 0°C | Heater at full level (PWM 255) |
+| Ambient | between 0°C and 30°C | All off |
 
 ---
 
 ## Project Structure
+
 ```
+esp32-climate-controller/
 ├── src/
-│   └── main.cpp
-├── diagram.json
+│   ├── main.cpp          # Main application logic
+│   ├── PWMDevice.cpp     # PwmDevice class implementation
+│   └── PWMDevice.h       # PwmDevice class header
 ├── platformio.ini
 └── README.md
 ```
 
 ---
 
+## Serial CSV Output
+
+On startup the ESP32 prints a header row, then one data row every 2 seconds:
+
+```
+timestamp_ms,temperature_C,humidity_pct,fan_pwm,heater_pwm,state
+2000,28.5,60.2,80,0,1
+4000,36.1,58.7,255,0,0
+```
+
+State values: `0` = HOT, `1` = AMBIENT, `2` = COLD
+
+---
+
+## Wokwi Simulation
+
+>Simulated using the [Wokwi VSCode extension](https://marketplace.visualstudio.com/items?itemName=wokwi.wokwi-vscode).  
+Circuit diagram available in `diagram.json`.
+---
+
+## Roadmap
+
+- [ ] Python serial capture script → `output.csv`
+- [ ] scikit-learn model training on logged data
+- [ ] README update with simulation link
+
+---
+
 ## Built With
 
-- ESP32 Arduino framework
-- PlatformIO
-- Wokwi (simulation)
+- [PlatformIO](https://platformio.org/) + Arduino framework
+- [DHT sensor library](https://github.com/adafruit/DHT-sensor-library)
+- ESP32 `ledc` PWM API
